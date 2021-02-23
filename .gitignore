@@ -1,0 +1,5 @@
+/target
+/.idea
+flamegraph.svg
+log.txt
+perf.data*

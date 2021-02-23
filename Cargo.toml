@@ -1,0 +1,14 @@
+[package]
+name = "chess-ai"
+version = "0.1.0"
+authors = ["grant0417 <grant@ggurvis.com>"]
+edition = "2018"
+
+[dependencies]
+cursive = {version = "0.16", features = ["toml"] }
+bitflags = "1.0"
+rayon = "1.5"
+tokio = { version = "1", features = ["full", "tracing"] }
+
+[profile.release]
+debug = true
