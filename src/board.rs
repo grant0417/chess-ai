@@ -48,12 +48,12 @@ impl Display for Color {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Piece {
-    King = 0,
-    Queen = 1,
-    Rook = 2,
-    Bishop = 3,
-    Knight = 4,
-    Pawn = 5,
+    King = 0b000,
+    Queen = 0b001,
+    Rook = 0b010,
+    Bishop = 0b011,
+    Knight = 0b100,
+    Pawn = 0b101,
 }
 
 impl TryFrom<usize> for Piece {
@@ -69,24 +69,6 @@ impl TryFrom<usize> for Piece {
             5 => Ok(Piece::Pawn),
             _ => Err(format!("Piece index out of range: {}", value)),
         }
-    }
-}
-
-bitflags! {
-    pub struct Castling: u8 {
-        const WHITE_LEFT_ROOK  = 0b000001;
-        const WHITE_RIGHT_ROOK = 0b000010;
-        const WHITE_KING       = 0b000100;
-        const BLACK_LEFT_ROOK  = 0b001000;
-        const BLACK_RIGHT_ROOK = 0b010000;
-        const BLACK_KING       = 0b100000;
-        const ALL              = 0b111111;
-        const NONE             = 0b000000;
-
-        const WHITE_KNIGHT = Castling::WHITE_KING.bits | Castling::WHITE_RIGHT_ROOK.bits;
-        const WHITE_QUEEN  = Castling::WHITE_KING.bits | Castling::WHITE_LEFT_ROOK.bits;
-        const BLACK_KNIGHT = Castling::BLACK_KING.bits | Castling::BLACK_RIGHT_ROOK.bits;
-        const BLACK_QUEEN  = Castling::BLACK_KING.bits | Castling::BLACK_LEFT_ROOK.bits;
     }
 }
 
@@ -116,7 +98,7 @@ pub struct MoveHistory {
     piece_taken: Option<(Color, Piece)>,
     starting_location: u8,
     ending_location: u8,
-    castling: Castling,
+    castling: u8,
     half_moves: u8,
     en_passant: Option<NonZeroU8>,
 }
@@ -127,7 +109,7 @@ pub struct Board {
     pub pieces: [Option<(Color, Piece)>; 64],
     pub bit_board: BitBoard,
     pub active_color: Color,
-    pub castling: Castling,
+    pub castling: u8,
     pub en_passant: Option<NonZeroU8>,
     pub half_moves: usize,
     pub full_moves: usize,
@@ -187,20 +169,20 @@ impl Board {
             _ => Color::White,
         };
 
-        let mut castling = Castling::NONE;
-        let castling_str = fen_board.next().unwrap_or("KQkq");
-        if castling_str.contains("K") {
-            castling.insert(Castling::WHITE_KNIGHT);
-        }
-        if castling_str.contains("Q") {
-            castling.insert(Castling::WHITE_QUEEN);
-        }
-        if castling_str.contains("k") {
-            castling.insert(Castling::BLACK_KNIGHT);
-        }
-        if castling_str.contains("q") {
-            castling.insert(Castling::BLACK_QUEEN);
-        }
+        // let mut castling = Castling::NONE;
+        let _castling_str = fen_board.next().unwrap_or("KQkq");
+        // if castling_str.contains("K") {
+        //     castling.insert(Castling::WHITE_KNIGHT);
+        // }
+        // if castling_str.contains("Q") {
+        //     castling.insert(Castling::WHITE_QUEEN);
+        // }
+        // if castling_str.contains("k") {
+        //     castling.insert(Castling::BLACK_KNIGHT);
+        // }
+        // if castling_str.contains("q") {
+        //     castling.insert(Castling::BLACK_QUEEN);
+        // }
 
         let en_passant_str = fen_board.next().unwrap_or("-");
         let en_passant = algebraic_to_index(en_passant_str.as_bytes())
@@ -216,7 +198,7 @@ impl Board {
             pieces: populated_board,
             bit_board: BitBoard(bit_board),
             active_color,
-            castling,
+            castling: 0,
             en_passant,
             half_moves,
             full_moves,
@@ -281,59 +263,59 @@ impl Board {
             self.en_passant = None;
         }
 
-        if let Some((king_color, Piece::King)) = self.pieces[m.start_index as usize] {
-            match m.flag {
-                Some(MoveFlag::CastlingKnight) => {
-                    self.pieces[m.start_index as usize + 1] =
-                        self.pieces[m.start_index as usize + 3];
-                    self.pieces[m.start_index as usize + 3] = None;
-                    match king_color {
-                        Color::White => self.castling.remove(Castling::WHITE_KING),
-                        Color::Black => self.castling.remove(Castling::BLACK_KING),
-                    }
-                }
-                Some(MoveFlag::CastlingQueen) => {
-                    self.pieces[m.start_index as usize - 1] =
-                        self.pieces[m.start_index as usize - 4];
-                    self.pieces[m.start_index as usize - 4] = None;
-                    match king_color {
-                        Color::White => self.castling.remove(Castling::WHITE_KING),
-                        Color::Black => self.castling.remove(Castling::BLACK_KING),
-                    }
-                }
-                Some(MoveFlag::InitialMove) => match king_color {
-                    Color::White => self.castling.remove(Castling::WHITE_KING),
-                    Color::Black => self.castling.remove(Castling::BLACK_KING),
-                },
-                _ => {}
-            }
+        if let Some((_king_color, Piece::King)) = self.pieces[m.start_index as usize] {
+            // match m.flag {
+            //     Some(MoveFlag::CastlingKnight) => {
+            //         self.pieces[m.start_index as usize + 1] =
+            //             self.pieces[m.start_index as usize + 3];
+            //         self.pieces[m.start_index as usize + 3] = None;
+            //         match king_color {
+            //             Color::White => self.castling.remove(Castling::WHITE_KING),
+            //             Color::Black => self.castling.remove(Castling::BLACK_KING),
+            //         }
+            //     }
+            //     Some(MoveFlag::CastlingQueen) => {
+            //         self.pieces[m.start_index as usize - 1] =
+            //             self.pieces[m.start_index as usize - 4];
+            //         self.pieces[m.start_index as usize - 4] = None;
+            //         match king_color {
+            //             Color::White => self.castling.remove(Castling::WHITE_KING),
+            //             Color::Black => self.castling.remove(Castling::BLACK_KING),
+            //         }
+            //     }
+            //     Some(MoveFlag::InitialMove) => match king_color {
+            //         Color::White => self.castling.remove(Castling::WHITE_KING),
+            //         Color::Black => self.castling.remove(Castling::BLACK_KING),
+            //     },
+            //     _ => {}
+            // }
         }
 
         // Track castling legality
-        if let Some((Color::White, Piece::Rook)) = self.pieces[m.start_index as usize] {
-            if m.start_index as usize == 0 {
-                self.castling.remove(Castling::WHITE_QUEEN);
-            }
-            if m.start_index as usize == 7 {
-                self.castling.remove(Castling::WHITE_KNIGHT);
-            }
-        }
-        if let Some((Color::Black, Piece::Rook)) = self.pieces[m.start_index as usize] {
-            if m.start_index as usize == 56 {
-                self.castling.remove(Castling::BLACK_QUEEN);
-            }
-            if m.start_index as usize == 63 {
-                self.castling.remove(Castling::BLACK_KNIGHT);
-            }
-        }
-        if let Some((Color::White, Piece::King)) = self.pieces[m.start_index as usize] {
-            self.castling.remove(Castling::WHITE_QUEEN);
-            self.castling.remove(Castling::WHITE_KNIGHT);
-        }
-        if let Some((Color::Black, Piece::King)) = self.pieces[m.start_index as usize] {
-            self.castling.remove(Castling::BLACK_QUEEN);
-            self.castling.remove(Castling::BLACK_KNIGHT);
-        }
+        // if let Some((Color::White, Piece::Rook)) = self.pieces[m.start_index as usize] {
+        //     if m.start_index as usize == 0 {
+        //         self.castling.remove(Castling::WHITE_QUEEN);
+        //     }
+        //     if m.start_index as usize == 7 {
+        //         self.castling.remove(Castling::WHITE_KNIGHT);
+        //     }
+        // }
+        // if let Some((Color::Black, Piece::Rook)) = self.pieces[m.start_index as usize] {
+        //     if m.start_index as usize == 56 {
+        //         self.castling.remove(Castling::BLACK_QUEEN);
+        //     }
+        //     if m.start_index as usize == 63 {
+        //         self.castling.remove(Castling::BLACK_KNIGHT);
+        //     }
+        // }
+        // if let Some((Color::White, Piece::King)) = self.pieces[m.start_index as usize] {
+        //     self.castling.remove(Castling::WHITE_QUEEN);
+        //     self.castling.remove(Castling::WHITE_KNIGHT);
+        // }
+        // if let Some((Color::Black, Piece::King)) = self.pieces[m.start_index as usize] {
+        //     self.castling.remove(Castling::BLACK_QUEEN);
+        //     self.castling.remove(Castling::BLACK_KNIGHT);
+        // }
 
         self.pieces[m.end_index as usize] = new_piece;
         self.pieces[m.start_index as usize] = None;
@@ -409,7 +391,7 @@ impl Default for Board {
 
 #[cfg(test)]
 mod test {
-    use crate::board::{Board, Castling, Color};
+    use crate::board::{Board, Color};
     use std::num::NonZeroU8;
 
     #[test]
@@ -422,7 +404,7 @@ mod test {
         let board2 =
             Board::from_fen("rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2")
                 .unwrap();
-        let board3 =
+        let _board3 =
             Board::from_fen("rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w Kq c5 4 11")
                 .unwrap();
         assert_eq!(board1.en_passant, NonZeroU8::new(42));
@@ -432,10 +414,5 @@ mod test {
         assert_eq!(board2.half_moves, 1);
         assert_eq!(board2.full_moves, 2);
         assert_eq!(board2.active_color, Color::Black);
-        assert_eq!(board2.castling, Castling::ALL);
-        assert_eq!(
-            board3.castling,
-            Castling::WHITE_KNIGHT | Castling::BLACK_QUEEN
-        );
     }
 }

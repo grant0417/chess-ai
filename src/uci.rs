@@ -1,8 +1,7 @@
-use crate::bitboard::{BitBoard, BitBoardState};
+use std::collections::HashMap;
 
-const APPLICATION_VERSION: &'static str = "0.0.1";
-const APPLICATION_NAME: &'static str = "Grants's AI";
-const APPLICATION_AUTHOR: &'static str = "Grant";
+use crate::bitboard::{BitBoard, BitBoardState, perft_report};
+use crate::{APPLICATION_AUTHOR, APPLICATION_NAME, APPLICATION_VERSION};
 
 pub enum ResponseType {
     Print(String),
@@ -11,12 +10,53 @@ pub enum ResponseType {
 }
 
 pub struct Options {
-    hash_table_size: usize,
+    hash: usize,
+    log_file: Option<String>,
+}
+
+impl Options {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn get_options(&self) -> String {
+        String::from(
+            "option name Hash type spin default 16 min 1 max 33554432\n\
+             option name LogFile type string default \n",
+        )
+    }
+
+    fn set_option<S: AsRef<str>>(&mut self, option: S, value: S) {
+        match option.as_ref().trim().to_lowercase().as_str() {
+            "hash" => {
+                self.hash = value.as_ref().parse().unwrap();
+            }
+            "logfile" => {
+                let file = value.as_ref().trim();
+                self.log_file = if file.len() == 0 {
+                    None
+                } else {
+                    Some(String::from(file))
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            hash: 16,
+            log_file: None,
+        }
+    }
 }
 
 pub struct UCIDriver {
     debug: bool,
     board: BitBoardState,
+    options: Options,
 }
 
 impl UCIDriver {
@@ -24,6 +64,7 @@ impl UCIDriver {
         Self {
             debug: false,
             board: BitBoardState::new(),
+            options: Options::new(),
         }
     }
 
@@ -34,7 +75,7 @@ impl UCIDriver {
             ["uci"] => {
                 let mut response = String::new();
                 response.push_str(&self.id());
-                response.push_str(&self.options());
+                response.push_str(&self.options.get_options());
                 response.push_str("uciok");
                 ResponseType::Print(response)
             }
@@ -61,8 +102,38 @@ impl UCIDriver {
                 };
                 ResponseType::Print(format!("{:?}\n", moves))
             }
+            ["position", "fen", fen] => {
+                self.board = match BitBoardState::from_fen(fen) {
+                    Ok(board) => board,
+                    Err(e) => {
+                        return ResponseType::Print(format!(
+                            "Unable to construct board from FEN: {}",
+                            e
+                        ))
+                    }
+                };
+                ResponseType::Nothing
+            }
             ["position", "startpositon", "moves", ref _moves @ ..] => ResponseType::Nothing,
-            ["setoption", "name", _id, "value", _x] => ResponseType::Nothing,
+            ["setoption", "name", option, "value", value] => {
+                self.options.set_option(option, value);
+                ResponseType::Nothing
+            }
+            ["setoption", "name", option, "value"] => {
+                self.options.set_option(option, "");
+                ResponseType::Nothing
+            }
+            ["setoption", "name", option, value] => {
+                self.options.set_option(option, value);
+                ResponseType::Nothing
+            }
+            ["setoption", "name", option] => {
+                self.options.set_option(option, "");
+                ResponseType::Nothing
+            }
+            ["go", "perft", depth] => {
+                ResponseType::Print(perft_report(&self.board, depth.parse().unwrap()))
+            }
             ["go", ..] => ResponseType::Print(format!("bestmove e7e5")),
             _ => ResponseType::Print(format!("Unknown command: {}", command)),
         }
@@ -71,11 +142,7 @@ impl UCIDriver {
     pub fn id(&self) -> String {
         format!(
             "id name {} {}\nid author {}\n",
-            APPLICATION_NAME, APPLICATION_VERSION, APPLICATION_NAME
+            APPLICATION_NAME, APPLICATION_VERSION, APPLICATION_AUTHOR
         )
-    }
-
-    pub fn options(&self) -> String {
-        String::from("")
     }
 }
