@@ -1,11 +1,11 @@
 use crate::board::{BoardMailbox, Color, Piece, ASCII_PIECES, UNICODE_PIECES};
 use crate::interface::{algebraic_to_index, index_to_algebraic, print_board};
 use core::fmt;
-use std::{cmp::Ordering, convert::TryFrom};
+use rayon::prelude::*;
 use std::fmt::{Debug, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
 use std::str::from_utf8;
-use rayon::prelude::*;
+use std::{cmp::Ordering, convert::TryFrom};
 
 // Board
 const A_FILE: u64 = 0x0101010101010101;
@@ -42,15 +42,15 @@ const QUEEN_CASTLE: u16 = 0b0011;
 const CAPTURE: u16 = 0b0100;
 const EP_CAPTURE: u16 = 0b0101;
 
-const KNIGHT_PROMOTION: u16 = 0b1000;
-const BISHOP_PROMOTION: u16 = 0b1001;
-const ROOK_PROMOTION: u16 = 0b1010;
-const QUEEN_PROMOTION: u16 = 0b1011;
+pub const KNIGHT_PROMOTION: u16 = 0b1000;
+pub const BISHOP_PROMOTION: u16 = 0b1001;
+pub const ROOK_PROMOTION: u16 = 0b1010;
+pub const QUEEN_PROMOTION: u16 = 0b1011;
 
-const KNIGHT_PROMOTION_CAPTURE: u16 = 0b1100;
-const BISHOP_PROMOTION_CAPTURE: u16 = 0b1101;
-const ROOK_PROMOTION_CAPTURE: u16 = 0b1110;
-const QUEEN_PROMOTION_CAPTURE: u16 = 0b1111;
+pub const KNIGHT_PROMOTION_CAPTURE: u16 = 0b1100;
+pub const BISHOP_PROMOTION_CAPTURE: u16 = 0b1101;
+pub const ROOK_PROMOTION_CAPTURE: u16 = 0b1110;
+pub const QUEEN_PROMOTION_CAPTURE: u16 = 0b1111;
 
 // Castling State
 const WHITE_A_ROOK: u8 = 0b000001;
@@ -504,8 +504,7 @@ impl BitBoardState {
         }
 
         if let Some((color, piece)) = to_type {
-            self.bitboard
-            .clear_piece(m.get_to() as usize, color, piece);
+            self.bitboard.clear_piece(m.get_to() as usize, color, piece);
         }
 
         self.en_passant = 64;
@@ -544,15 +543,13 @@ impl BitBoardState {
                 KING_CASTLE => {
                     self.bitboard.clear_piece(7, Color::White, Piece::Rook);
                     self.bitboard.set_piece(5, Color::White, Piece::Rook);
-
-
                 }
                 _ => {}
             }
 
             self.bitboard.set_piece(m.get_to() as usize, color, p);
             self.bitboard
-            .clear_piece(m.get_from() as usize, color, piece);
+                .clear_piece(m.get_from() as usize, color, piece);
         }
     }
 }
@@ -633,6 +630,21 @@ impl BitBoardMove {
     pub const fn get_flags(&self) -> u16 {
         (self.0 >> 12) & 0x000f
     }
+
+    pub fn set_to(&mut self, to: u16) {
+        self.0 &= !0x3f;
+        self.0 |= to & 0x3f;
+    }
+
+    pub fn set_from(&mut self, from: u16) {
+        self.0 &= !(0x3f << 6);
+        self.0 |= (from & 0x3f) << 6;
+    }
+
+    pub fn set_flags(&mut self, flags: u16) {
+        self.0 &= !(0xf << 12);
+        self.0 |= (flags & 0xf) << 12;
+    }
 }
 
 impl PartialEq for BitBoardMove {
@@ -641,7 +653,7 @@ impl PartialEq for BitBoardMove {
     }
 }
 
-pub struct BitBoardMoves{
+pub struct BitBoardMoves {
     moves: [BitBoardMove; 256],
     head: usize,
     index: usize,
@@ -652,7 +664,7 @@ impl BitBoardMoves {
         BitBoardMoves {
             moves: [BitBoardMove(0); 256],
             head: 0,
-            index: 0,  
+            index: 0,
         }
     }
 
@@ -917,10 +929,13 @@ const fn get_ray_attacks(index: usize, occupied: u64, direction: Direction) -> u
     attacks ^ RAY_ATTACKS[direction as usize][lowest_bit as usize]
 }
 
-const fn get_negitive_ray_attacks(index: usize, occupied: u64, direction: Direction) -> u64 {
+const fn get_negative_ray_attacks(index: usize, occupied: u64, direction: Direction) -> u64 {
     let attacks = RAY_ATTACKS[direction as usize][index];
     let blockers = attacks & occupied;
-    let highest_bit = 64 - blockers.leading_zeros();
+    let highest_bit = match 63u32.overflowing_sub(blockers.leading_zeros()).0 {
+        i if i < 64 => i,
+        _ => 64,
+    };
     attacks ^ RAY_ATTACKS[direction as usize][highest_bit as usize]
 }
 
@@ -1004,9 +1019,9 @@ const fn knight_attacks2(knights: u64) -> u64 {
 }
 
 fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
-    let oposite_color = match color {
+    let opposite_color = match color {
         Color::White => Color::Black,
-        Color::Black => Color::White
+        Color::Black => Color::White,
     };
 
     let mut any_attacks = 0;
@@ -1028,16 +1043,17 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     let our_king = state.bitboard.get_set(color, Piece::King);
     let our_king_index = our_king.trailing_zeros() as usize;
     let empty_and_our_king = !(occupied ^ our_king);
-    let empty_and_our_king_and_ep =
-        !(occupied ^ our_king ^ ((1u64.overflowing_shl(state.en_passant as u32).0 & (RANK6 | RANK3)) >> 8));
+    let empty_and_our_king_and_ep = !(occupied
+        ^ our_king
+        ^ ((1u64.overflowing_shl(state.en_passant as u32).0 & (RANK6 | RANK3)) >> 8));
 
     let our_pieces = state.bitboard.color_pieces(color);
-    let their_pieces = state.bitboard.color_pieces(oposite_color);
+    let their_pieces = state.bitboard.color_pieces(opposite_color);
 
-    let orthogonal_set = state.bitboard.get_set(oposite_color, Piece::Rook)
-        | state.bitboard.get_set(oposite_color, Piece::Queen);
-    let diagonal_set = state.bitboard.get_set(oposite_color, Piece::Bishop)
-        | state.bitboard.get_set(oposite_color, Piece::Queen);
+    let orthogonal_set = state.bitboard.get_set(opposite_color, Piece::Rook)
+        | state.bitboard.get_set(opposite_color, Piece::Queen);
+    let diagonal_set = state.bitboard.get_set(opposite_color, Piece::Bishop)
+        | state.bitboard.get_set(opposite_color, Piece::Queen);
 
     // black rooks and queens west
     let attacks = attack_west(orthogonal_set, empty_and_our_king);
@@ -1052,17 +1068,15 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     let attacks = attack_east(orthogonal_set, empty_and_our_king);
     let ep_attacks = attack_east(orthogonal_set, empty_and_our_king_and_ep);
     any_attacks |= attacks;
-    let super_attacks = get_negitive_ray_attacks(our_king_index, occupied, Direction::West);
+    let super_attacks = get_negative_ray_attacks(our_king_index, occupied, Direction::West);
     w_ksuper_attacks_orth |= super_attacks;
     hor_inbetween |= attacks & super_attacks;
     hor_inbetween_ep |= ep_attacks & super_attacks;
 
-    print_bitboard(super_attacks);
-
     // black rooks and queens north
     let attacks = attack_north(orthogonal_set, empty_and_our_king);
     any_attacks |= attacks;
-    let super_attacks = get_negitive_ray_attacks(our_king_index, occupied, Direction::South);
+    let super_attacks = get_negative_ray_attacks(our_king_index, occupied, Direction::South);
     w_ksuper_attacks_orth |= super_attacks;
     ver_inbetween |= attacks & super_attacks;
 
@@ -1077,7 +1091,7 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     let attacks = attack_north_east(diagonal_set, empty_and_our_king);
     let ep_attacks = attack_north_east(diagonal_set, empty_and_our_king_and_ep);
     any_attacks |= attacks;
-    let super_attacks = get_negitive_ray_attacks(our_king_index, occupied, Direction::SouthWest);
+    let super_attacks = get_negative_ray_attacks(our_king_index, occupied, Direction::SouthWest);
     w_ksuper_attacks_dia |= super_attacks;
     dia_inbetween |= attacks & super_attacks;
     dia_inbetween_ep |= ep_attacks;
@@ -1095,7 +1109,7 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     let attacks = attack_north_west(diagonal_set, empty_and_our_king);
     let ep_attacks = attack_north_west(diagonal_set, empty_and_our_king_and_ep);
     any_attacks |= attacks;
-    let super_attacks = get_negitive_ray_attacks(our_king_index, occupied, Direction::SouthEast);
+    let super_attacks = get_negative_ray_attacks(our_king_index, occupied, Direction::SouthEast);
     w_ksuper_attacks_dia |= super_attacks;
     ant_inbetween |= attacks & super_attacks;
     ant_inbetween_ep |= ep_attacks;
@@ -1110,12 +1124,12 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     ant_inbetween_ep |= ep_attacks;
 
     // black knights
-    any_attacks |= knight_attacks(state.bitboard.get_set(oposite_color, Piece::Knight));
+    any_attacks |= knight_attacks(state.bitboard.get_set(opposite_color, Piece::Knight));
     // black pawns
-    any_attacks |= south_east_one(state.bitboard.get_set(oposite_color, Piece::Pawn));
-    any_attacks |= south_west_one(state.bitboard.get_set(oposite_color, Piece::Pawn));
+    any_attacks |= south_east_one(state.bitboard.get_set(opposite_color, Piece::Pawn));
+    any_attacks |= south_west_one(state.bitboard.get_set(opposite_color, Piece::Pawn));
     // black king
-    any_attacks |= king_attacks(state.bitboard.get_set(oposite_color, Piece::King));
+    any_attacks |= king_attacks(state.bitboard.get_set(opposite_color, Piece::King));
 
     let en_passant_pawn = (1u64.overflowing_shl(state.en_passant as u32).0 & RANK6) >> 8;
     let _en_passant_attacking_pawns = (east_one(en_passant_pawn) | west_one(en_passant_pawn))
@@ -1127,9 +1141,9 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     let blocks = all_inbetween & !occupied;
     let check_from = (w_ksuper_attacks_orth & orthogonal_set)
         | (w_ksuper_attacks_dia & diagonal_set)
-        | (knight_attacks(our_king) & state.bitboard.get_set(oposite_color, Piece::Knight))
+        | (knight_attacks(our_king) & state.bitboard.get_set(opposite_color, Piece::Knight))
         | ((north_east_one(our_king) | north_west_one(our_king))
-            & state.bitboard.get_set(oposite_color, Piece::Pawn));
+            & state.bitboard.get_set(opposite_color, Piece::Pawn));
 
     let null_if_check = is_empty(any_attacks & our_king); /* signed shifts */
     let null_if_dbl_check = is_empty(check_from & (check_from.overflowing_sub(1).0));
@@ -1143,15 +1157,16 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     // Valid moves
     let mut move_targets = [0; 16];
 
-    let orthogonal_set = state.bitboard.get_set(color, Piece::Rook)
-        | state.bitboard.get_set(color, Piece::Queen);
-    let diagonal_set = state.bitboard.get_set(color, Piece::Bishop)
-        | state.bitboard.get_set(color, Piece::Queen);
+    let orthogonal_set =
+        state.bitboard.get_set(color, Piece::Rook) | state.bitboard.get_set(color, Piece::Queen);
+    let diagonal_set =
+        state.bitboard.get_set(color, Piece::Bishop) | state.bitboard.get_set(color, Piece::Queen);
 
     // horizontal rook and queen moves
     let sliders = orthogonal_set & !(all_inbetween ^ hor_inbetween);
     move_targets[Direction::East as usize] = attack_east(sliders, empty) & target_mask;
     move_targets[Direction::West as usize] = attack_west(sliders, empty) & target_mask;
+
     // horizontal rook and queen moves
     let sliders = orthogonal_set & !(all_inbetween ^ ver_inbetween);
     move_targets[Direction::North as usize] = attack_north(sliders, empty) & target_mask;
@@ -1179,11 +1194,9 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
 
     // pawn captures and en passant
     let targets = their_pieces & target_mask;
-    let pawns =
-        state.bitboard.get_set(color, Piece::Pawn) & !(all_inbetween ^ dia_inbetween);
+    let pawns = state.bitboard.get_set(color, Piece::Pawn) & !(all_inbetween ^ dia_inbetween);
     move_targets[Direction::NorthEast as usize] |= north_east_one(pawns) & targets;
-    let pawns =
-        state.bitboard.get_set(color, Piece::Pawn) & !(all_inbetween ^ ant_inbetween);
+    let pawns = state.bitboard.get_set(color, Piece::Pawn) & !(all_inbetween ^ ant_inbetween);
     move_targets[Direction::NorthWest as usize] |= north_west_one(pawns) & targets;
 
     let ep_target = 1u64.overflowing_shl(state.en_passant as u32).0;
@@ -1198,8 +1211,7 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     move_targets[Direction::NorthWest as usize] |= north_west_one(pawns) & ep_target;
 
     // pawn pushes
-    let pawns =
-        state.bitboard.get_set(color, Piece::Pawn) & !(all_inbetween ^ ver_inbetween);
+    let pawns = state.bitboard.get_set(color, Piece::Pawn) & !(all_inbetween ^ ver_inbetween);
     let pawn_pushes = north_one(pawns) & !occupied;
     move_targets[Direction::North as usize] |= pawn_pushes & target_mask;
     // and double pushs
@@ -1223,8 +1235,11 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     let check_clear = !((((west_one(our_king) & target_mask) as i64 - 1) >> 63) as u64);
     let nothing_1 = !is_empty(west_one(west_one(our_king)) & target_mask);
     let nothing_2 = !is_empty(west_one(west_one(west_one(our_king))) & target_mask);
-    move_targets[Direction::West as usize] |=
-        (west_one(west_one(our_king)) & target_mask) & castling_rights & check_clear & nothing_1 & nothing_2;
+    move_targets[Direction::West as usize] |= (west_one(west_one(our_king)) & target_mask)
+        & castling_rights
+        & check_clear
+        & nothing_1
+        & nothing_2;
 
     // Right Castle
     let castling_rights = !((((state.castling & CASTLE_WHITE_KING) as i64 - 1) >> 63) as u64);
@@ -1236,17 +1251,28 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     move_targets
 }
 
-pub fn generate_moves(state: &BitBoardState, color: Color) -> Vec<BitBoardMove> {
+pub fn generate_moves(state: &BitBoardState) -> Vec<BitBoardMove> {
+    let color = state.active_color;
+    let state = match color {
+        Color::White => state.clone(),
+        Color::Black => {
+            let mut s = state.clone();
+            s.mirror_board();
+            s.change_side();
+            s
+        }
+    };
+
     let mut moves = Vec::with_capacity(256);
 
-    let mut move_targets = move_targets(state, color);
+    let mut move_targets = move_targets(&state, Color::White);
 
     // for i in &move_targets {
     //     print_bitboard(*i);
     //     println!();
     // }
     let occupied = state.bitboard.occupied_squares();
-    let pawns = state.bitboard.get_set(color, Piece::Pawn);
+    let pawns = state.bitboard.get_set(Color::White, Piece::Pawn);
 
     while move_targets[Direction::North as usize] != 0 {
         let mut target_square =
@@ -1355,7 +1381,7 @@ pub fn generate_moves(state: &BitBoardState, color: Color) -> Vec<BitBoardMove> 
                 flags | KNIGHT_PROMOTION,
             ));
         }
-        
+
         move_targets[Direction::South as usize] &= !(1u64 << target_square);
         target_square += 8;
         while target_square < source_square {
@@ -1599,40 +1625,40 @@ pub fn generate_moves(state: &BitBoardState, color: Color) -> Vec<BitBoardMove> 
             & !(1 << target_square))
             .trailing_zeros();
 
-            let capture = !is_empty((1 << target_square) & occupied) as u16;
-            let flags = capture & CAPTURE;
-    
-            let pawn = (1 << source_square) & pawns;
-            let promotion = !is_empty((pawn >> 8) & RANK1) as u16;
-    
-            if promotion == 0 {
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags,
-                ));
-            } else {
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | QUEEN_PROMOTION,
-                ));
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | ROOK_PROMOTION,
-                ));
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | BISHOP_PROMOTION,
-                ));
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | KNIGHT_PROMOTION,
-                ));
-            }
+        let capture = !is_empty((1 << target_square) & occupied) as u16;
+        let flags = capture & CAPTURE;
+
+        let pawn = (1 << source_square) & pawns;
+        let promotion = !is_empty((pawn >> 8) & RANK1) as u16;
+
+        if promotion == 0 {
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags,
+            ));
+        } else {
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | QUEEN_PROMOTION,
+            ));
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | ROOK_PROMOTION,
+            ));
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | BISHOP_PROMOTION,
+            ));
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | KNIGHT_PROMOTION,
+            ));
+        }
 
         move_targets[Direction::SouthWest as usize] &= !(1u64 << target_square);
         target_square += 9;
@@ -1661,40 +1687,40 @@ pub fn generate_moves(state: &BitBoardState, color: Color) -> Vec<BitBoardMove> 
             & !(1 << target_square))
             .trailing_zeros();
 
-            let capture = !is_empty((1 << target_square) & occupied) as u16;
-            let flags = capture & CAPTURE;
-    
-            let pawn = (1 << source_square) & pawns;
-            let promotion = !is_empty((pawn >> 8) & RANK1) as u16;
-    
-            if promotion == 0 {
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags,
-                ));
-            } else {
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | QUEEN_PROMOTION,
-                ));
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | ROOK_PROMOTION,
-                ));
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | BISHOP_PROMOTION,
-                ));
-                moves.push(BitBoardMove::new(
-                    source_square as u16,
-                    target_square as u16,
-                    flags | KNIGHT_PROMOTION,
-                ));
-            }
+        let capture = !is_empty((1 << target_square) & occupied) as u16;
+        let flags = capture & CAPTURE;
+
+        let pawn = (1 << source_square) & pawns;
+        let promotion = !is_empty((pawn >> 8) & RANK1) as u16;
+
+        if promotion == 0 {
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags,
+            ));
+        } else {
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | QUEEN_PROMOTION,
+            ));
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | ROOK_PROMOTION,
+            ));
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | BISHOP_PROMOTION,
+            ));
+            moves.push(BitBoardMove::new(
+                source_square as u16,
+                target_square as u16,
+                flags | KNIGHT_PROMOTION,
+            ));
+        }
 
         move_targets[Direction::SouthEast as usize] &= !(1u64 << target_square);
         target_square += 7;
@@ -1850,6 +1876,13 @@ pub fn generate_moves(state: &BitBoardState, color: Color) -> Vec<BitBoardMove> 
         move_targets[Direction::SouthSouthWest as usize] &= !(1u64 << target_square);
     }
 
+    if color == Color::Black {
+        for m in &mut moves {
+            m.set_to((1u64 << m.get_to()).swap_bytes().trailing_zeros() as u16);
+            m.set_from((1u64 << m.get_from()).swap_bytes().trailing_zeros() as u16);
+        }
+    }
+
     moves
 }
 
@@ -1870,20 +1903,22 @@ pub fn perft(board: &BitBoardState, depth: usize) -> usize {
         return 1;
     }
 
-    let moves = generate_moves(board, Color::White);
+    let moves = generate_moves(board);
 
     if depth == 1 {
         return moves.len();
     }
 
-    let nodes = moves.into_par_iter().map(|m| {
-        let mut board_copy = board.clone();
-        board_copy.apply_move(&m);
-        board_copy.mirror_board();
-        board_copy.change_side();
-        let moves = perft(&board_copy, depth - 1);
-        moves
-    }).sum();
+    let nodes = moves
+        .into_par_iter()
+        .map(|m| {
+            let mut board_copy = board.clone();
+            board_copy.apply_move(&m);
+            board_copy.change_side();
+            let moves = perft(&board_copy, depth - 1);
+            moves
+        })
+        .sum();
 
     return nodes;
 }
@@ -1891,13 +1926,11 @@ pub fn perft(board: &BitBoardState, depth: usize) -> usize {
 pub fn perft_report(board: &BitBoardState, depth: usize) -> String {
     let mut report = String::new();
 
-    let mut moves = generate_moves(board, Color::White);
-    moves.sort_by(|a, b| {
-        match a.get_from().cmp(&b.get_from()) {
-            Ordering::Less => Ordering::Less,
-            Ordering::Equal => a.get_to().cmp(&b.get_to()),
-            Ordering::Greater => Ordering::Greater
-        }
+    let mut moves = generate_moves(board);
+    moves.sort_by(|a, b| match a.get_from().cmp(&b.get_from()) {
+        Ordering::Less => Ordering::Less,
+        Ordering::Equal => a.get_to().cmp(&b.get_to()),
+        Ordering::Greater => Ordering::Greater,
     });
 
     let mut total_nodes = 0;
@@ -1913,7 +1946,12 @@ pub fn perft_report(board: &BitBoardState, depth: usize) -> String {
         let from = index_to_algebraic(m.get_from() as usize);
         let to = index_to_algebraic(m.get_to() as usize);
 
-        report.push_str(&format!("{}{}: {}\n", from_utf8(&from).unwrap(), from_utf8(&to).unwrap(), nodes));
+        report.push_str(&format!(
+            "{}{}: {}\n",
+            from_utf8(&from).unwrap(),
+            from_utf8(&to).unwrap(),
+            nodes
+        ));
     }
 
     report.push_str(&format!("\nNodes searched: {}\n", total_nodes));
@@ -1923,7 +1961,9 @@ pub fn perft_report(board: &BitBoardState, depth: usize) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::interface::index_to_algebraic;
     use crate::{bitboard::*, board};
+    use std::str::from_utf8;
 
     #[test]
     fn test_bitboard_move() {
@@ -1944,7 +1984,7 @@ mod test {
         )
         .unwrap();
 
-        let moves = generate_moves(&board, Color::White);
+        let moves = generate_moves(&board);
         for m in moves {
             let from_i = index_to_algebraic(m.get_from() as usize);
             let from = from_utf8(&from_i).unwrap();
@@ -2037,13 +2077,9 @@ mod test {
 
     #[test]
     fn test_blah() {
-        let mut board = BitBoardState::from_fen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - -").unwrap();
-
-
-        board.apply_move(&BitBoardMove::new(algebraic_to_index(b"g2").unwrap() as u16, algebraic_to_index(b"g3").unwrap() as u16, 0));
-        board.mirror_board();
-        board.change_side();
-
+        let mut board =
+            BitBoardState::from_fen("rnQqkbn1/8/8/pp1ppp2/PP1PPPpr/2P3Pp/7P/RNB1KBNR b KQq - 0 12")
+                .unwrap();
         println!("{}", perft_report(&board, 1));
 
         assert!(false);

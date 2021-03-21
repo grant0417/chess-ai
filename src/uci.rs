@@ -1,10 +1,19 @@
 use std::collections::HashMap;
 
-use crate::bitboard::{BitBoard, BitBoardState, perft_report};
+use crate::bitboard::{
+    perft_report, BitBoard, BitBoardMove, BitBoardState, BISHOP_PROMOTION,
+    BISHOP_PROMOTION_CAPTURE, KNIGHT_PROMOTION, KNIGHT_PROMOTION_CAPTURE, QUEEN_PROMOTION,
+    QUEEN_PROMOTION_CAPTURE, ROOK_PROMOTION, ROOK_PROMOTION_CAPTURE
+};
+use crate::interface::index_to_algebraic;
+use crate::search::best_move;
 use crate::{APPLICATION_AUTHOR, APPLICATION_NAME, APPLICATION_VERSION};
+use std::str::from_utf8;
 
 pub enum ResponseType {
-    Print(String),
+    Response(String),
+    Log(String),
+    ResponseLog(String, String),
     Nothing,
     Quit,
 }
@@ -77,10 +86,10 @@ impl UCIDriver {
                 response.push_str(&self.id());
                 response.push_str(&self.options.get_options());
                 response.push_str("uciok");
-                ResponseType::Print(response)
+                ResponseType::Response(response)
             }
             ["quit"] => ResponseType::Quit,
-            ["isready"] => ResponseType::Print(String::from("readyok")),
+            ["isready"] => ResponseType::Response(String::from("readyok")),
             ["ucinewgame"] => ResponseType::Nothing,
             ["debug", "on"] => {
                 self.debug = true;
@@ -94,19 +103,19 @@ impl UCIDriver {
                 self.board = match BitBoardState::from_fen(fen) {
                     Ok(board) => board,
                     Err(e) => {
-                        return ResponseType::Print(format!(
+                        return ResponseType::Response(format!(
                             "Unable to construct board from FEN: {}",
                             e
                         ))
                     }
                 };
-                ResponseType::Print(format!("{:?}\n", moves))
+                ResponseType::Response(format!("{:?}\n", moves))
             }
             ["position", "fen", fen] => {
                 self.board = match BitBoardState::from_fen(fen) {
                     Ok(board) => board,
                     Err(e) => {
-                        return ResponseType::Print(format!(
+                        return ResponseType::Response(format!(
                             "Unable to construct board from FEN: {}",
                             e
                         ))
@@ -114,7 +123,19 @@ impl UCIDriver {
                 };
                 ResponseType::Nothing
             }
-            ["position", "startpositon", "moves", ref _moves @ ..] => ResponseType::Nothing,
+            ["position", "startpos", "moves", ref moves @ ..] => {
+                self.board = BitBoardState::new();
+                for m in moves {
+                    self.board
+                        .apply_move(&BitBoardMove::from_long_algebraic(m.as_bytes()).unwrap());
+                    self.board.change_side();
+                }
+                ResponseType::Nothing
+            }
+            ["position", "startpos"] => {
+                self.board = BitBoardState::new();
+                ResponseType::Nothing
+            }
             ["setoption", "name", option, "value", value] => {
                 self.options.set_option(option, value);
                 ResponseType::Nothing
@@ -132,10 +153,30 @@ impl UCIDriver {
                 ResponseType::Nothing
             }
             ["go", "perft", depth] => {
-                ResponseType::Print(perft_report(&self.board, depth.parse().unwrap()))
+                ResponseType::Response(perft_report(&self.board, depth.parse().unwrap()))
             }
-            ["go", ..] => ResponseType::Print(format!("bestmove e7e5")),
-            _ => ResponseType::Print(format!("Unknown command: {}", command)),
+            ["go", ..] => {
+                let best_move = best_move(&self.board, 1);
+                let from = index_to_algebraic(best_move.get_from() as usize);
+                let to = index_to_algebraic(best_move.get_to() as usize);
+                let promotion = match best_move.get_flags() {
+                    KNIGHT_PROMOTION | KNIGHT_PROMOTION_CAPTURE => String::from("n"),
+                    QUEEN_PROMOTION | QUEEN_PROMOTION_CAPTURE => String::from("q"),
+                    BISHOP_PROMOTION | BISHOP_PROMOTION_CAPTURE => String::from("b"),
+                    ROOK_PROMOTION | ROOK_PROMOTION_CAPTURE => String::from("r"),
+                    _ => String::from(" "),
+                };
+                match (from_utf8(&from), from_utf8(&to)) {
+                    (Ok(f), Ok(t)) => {
+                        ResponseType::Response(format!("bestmove {}{}{}", f, t, promotion))
+                    }
+                    (_, _) => ResponseType::Response(format!(
+                        "Unable to construct index {:?} {:?}",
+                        from, to
+                    )),
+                }
+            }
+            _ => ResponseType::Response(format!("Unknown command: {}", command)),
         }
     }
 

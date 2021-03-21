@@ -71,10 +71,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log.write(buffer.as_bytes()).await?;
 
             match uci_driver.parse_command(&buffer) {
-                ResponseType::Print(response) => {
+                ResponseType::Response(response) => {
                     writer.write(response.as_bytes()).await?;
                     writer.write(b"\n").await?;
                     writer.flush().await?;
+                    log.write(response.as_bytes()).await?;
+                    log.write(b"\n").await?;
+                    log.flush().await?;
+                }
+                ResponseType::Log(s) => {
+                    log.write(b"!").await?;
+                    log.write(s.as_bytes()).await?;
+                    log.write(b"\n").await?;
+                    log.flush().await?;
+                }
+                ResponseType::ResponseLog(response, s) => {
+                    writer.write(response.as_bytes()).await?;
+                    writer.write(b"\n").await?;
+                    writer.flush().await?;
+                    log.write(b"!").await?;
+                    log.write(s.as_bytes()).await?;
+                    log.write(b"\n").await?;
                     log.write(response.as_bytes()).await?;
                     log.write(b"\n").await?;
                     log.flush().await?;
@@ -98,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         'main_loop: loop {
-            let moves = generate_moves(&bit_board, Color::White);
+            let moves = generate_moves(&bit_board);
 
             let (start, end) = 'start_end_loop: loop {
                 println!("\x1B[2J");
@@ -146,7 +163,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             if let Ok(end) =
                                                 algebraic_to_index(&buffer.trim()[0..2].as_bytes())
                                             {
-                                                if moves.contains(&BitBoardMove::new(start as u16, end as u16, 0)) {
+                                                if moves.contains(&BitBoardMove::new(
+                                                    start as u16,
+                                                    end as u16,
+                                                    0,
+                                                )) {
                                                     break end;
                                                 }
                                             }
@@ -168,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             bit_board.apply_move(&moves[pos]);
             bit_board.mirror_board();
-            //bit_board.change_side();    
+            //bit_board.change_side();
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::bitboard::BitBoard;
+use crate::bitboard::{BitBoard, generate_moves, BitBoardState};
 use crate::board::{Board, Color, Piece};
 
 fn evaluate_board(board: &Board, evaluate_color: Color) -> i64 {
@@ -15,32 +15,41 @@ fn evaluate_board(board: &Board, evaluate_color: Color) -> i64 {
     value
 }
 
-fn evaluate_bitboard(bitboard: &BitBoard, evaluate_color: Color) -> i64 {
+pub fn evaluate_bitboard(bitboard: &BitBoardState, evaluate_color: Color) -> i64 {
+    let mut bitboard = bitboard.clone();
     let opposite_color = match evaluate_color {
         Color::White => Color::Black,
         Color::Black => Color::White,
     };
 
     let mut value = 0;
-    value += bitboard.get_set(evaluate_color, Piece::Pawn).count_ones() as i64;
-    value += bitboard.get_set(evaluate_color, Piece::Rook).count_ones() as i64
+    value += bitboard.bitboard.get_set(evaluate_color, Piece::Pawn).count_ones() as i64;
+    value += bitboard.bitboard.get_set(evaluate_color, Piece::Rook).count_ones() as i64
         * piece_value(Piece::Rook);
-    value += bitboard.get_set(evaluate_color, Piece::Bishop).count_ones() as i64
+    value += bitboard.bitboard.get_set(evaluate_color, Piece::Bishop).count_ones() as i64
         * piece_value(Piece::Bishop);
-    value += bitboard.get_set(evaluate_color, Piece::Knight).count_ones() as i64
+    value += bitboard.bitboard.get_set(evaluate_color, Piece::Knight).count_ones() as i64
         * piece_value(Piece::Knight);
-    value += bitboard.get_set(evaluate_color, Piece::Queen).count_ones() as i64
+    value += bitboard.bitboard.get_set(evaluate_color, Piece::Queen).count_ones() as i64
         * piece_value(Piece::Queen);
 
-    value -= bitboard.get_set(opposite_color, Piece::Pawn).count_ones() as i64;
-    value -= bitboard.get_set(opposite_color, Piece::Rook).count_ones() as i64
+    value -= bitboard.bitboard.get_set(opposite_color, Piece::Pawn).count_ones() as i64;
+    value -= bitboard.bitboard.get_set(opposite_color, Piece::Rook).count_ones() as i64
         * piece_value(Piece::Rook);
-    value -= bitboard.get_set(opposite_color, Piece::Bishop).count_ones() as i64
+    value -= bitboard.bitboard.get_set(opposite_color, Piece::Bishop).count_ones() as i64
         * piece_value(Piece::Bishop);
-    value -= bitboard.get_set(opposite_color, Piece::Knight).count_ones() as i64
+    value -= bitboard.bitboard.get_set(opposite_color, Piece::Knight).count_ones() as i64
         * piece_value(Piece::Knight);
-    value -= bitboard.get_set(opposite_color, Piece::Queen).count_ones() as i64
+    value -= bitboard.bitboard.get_set(opposite_color, Piece::Queen).count_ones() as i64
         * piece_value(Piece::Queen);
+
+    bitboard.active_color = evaluate_color;
+    let our_moves = generate_moves(&bitboard).len();
+    bitboard.active_color = opposite_color;
+    let their_moves = generate_moves(&bitboard).len();
+
+    let move_val = 10 * (our_moves - their_moves) as i64;
+    value += move_val;
 
     value
 }
