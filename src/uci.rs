@@ -6,9 +6,9 @@ use crate::bitboard::{
     QUEEN_PROMOTION_CAPTURE, ROOK_PROMOTION, ROOK_PROMOTION_CAPTURE
 };
 use crate::interface::index_to_algebraic;
-use crate::search::best_move;
 use crate::{APPLICATION_AUTHOR, APPLICATION_NAME, APPLICATION_VERSION};
 use std::str::from_utf8;
+use crate::search::{SearchDriver};
 
 pub enum ResponseType {
     Response(String),
@@ -65,6 +65,7 @@ impl Default for Options {
 pub struct UCIDriver {
     debug: bool,
     board: BitBoardState,
+    search_driver: SearchDriver,
     options: Options,
 }
 
@@ -73,6 +74,7 @@ impl UCIDriver {
         Self {
             debug: false,
             board: BitBoardState::new(),
+            search_driver: SearchDriver::new(16),
             options: Options::new(),
         }
     }
@@ -156,7 +158,7 @@ impl UCIDriver {
                 ResponseType::Response(perft_report(&self.board, depth.parse().unwrap()))
             }
             ["go", ..] => {
-                let best_move = best_move(&self.board, 1);
+                let best_move = self.search_driver.best_move(&self.board, 6);
                 let from = index_to_algebraic(best_move.get_from() as usize);
                 let to = index_to_algebraic(best_move.get_to() as usize);
                 let promotion = match best_move.get_flags() {

@@ -6,9 +6,11 @@ use std::fmt::{Debug, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
 use std::str::from_utf8;
 use std::{cmp::Ordering, convert::TryFrom};
+use crate::util::Rng;
 
 // Board
 const A_FILE: u64 = 0x0101010101010101;
+const E_FILE: u64 = 0x1010101010101010;
 const H_FILE: u64 = 0x8080808080808080;
 
 const NOT_A_FILE: u64 = 0xfefefefefefefefe;
@@ -551,6 +553,19 @@ impl BitBoardState {
             self.bitboard
                 .clear_piece(m.get_from() as usize, color, piece);
         }
+    }
+
+    pub fn zobrist_hash(&self, zobrist_table: [[u64; 64]; 12]) -> u64 {
+        let mut hash = 0;
+        let pieces = self.bitboard.occupied_squares();
+        for i in 0..64 {
+            if pieces & 1 << i != 0 {
+                if let Some((c, p)) = self.bitboard.get_piece(i) {
+                    hash ^= zobrist_table[2 * c as usize + p as usize][i];
+                }
+            }
+        }
+        hash
     }
 }
 
@@ -1229,6 +1244,8 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
     move_targets[Direction::NorthWest as usize] |= north_west_one(our_king) & target_mask;
     move_targets[Direction::SouthEast as usize] |= south_east_one(our_king) & target_mask;
 
+    let on_rank_and_file = !is_empty(our_king & RANK1 & E_FILE);
+
     // Left Castle
     let target_mask = !(occupied | any_attacks);
     let castling_rights = !((((state.castling & WHITE_KING) as i64 - 1) >> 63) as u64);
@@ -1239,14 +1256,15 @@ fn move_targets(state: &BitBoardState, color: Color) -> [u64; 16] {
         & castling_rights
         & check_clear
         & nothing_1
-        & nothing_2;
+        & nothing_2
+        & on_rank_and_file;
 
     // Right Castle
     let castling_rights = !((((state.castling & CASTLE_WHITE_KING) as i64 - 1) >> 63) as u64);
     let check_clear = !is_empty((east_one(our_king) & target_mask) as u64);
     let nothing = !is_empty(east_one(east_one(our_king)) & target_mask);
     move_targets[Direction::East as usize] |=
-        (east_one(east_one(our_king)) & target_mask) & castling_rights & check_clear & nothing;
+        (east_one(east_one(our_king)) & target_mask) & castling_rights & check_clear & nothing & on_rank_and_file;
 
     move_targets
 }

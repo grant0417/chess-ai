@@ -29,12 +29,6 @@ pub const APPLICATION_ABOUT: &'static str = "This is a chess AI";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // let board = BitBoardState::new();
-    // let now = std::time::Instant::now();
-    // println!("{}", perft(&board, 7));
-    // println!("{:?}", now.elapsed());
-    // return Ok(());
-
     let matches = App::new(APPLICATION_NAME)
         .version(APPLICATION_VERSION)
         .author(APPLICATION_AUTHOR)
